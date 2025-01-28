@@ -51,9 +51,9 @@ function App() {
   ];
 
   return (
-    <PasswordGate>
-      <ThemeProvider theme={theme}>
-        <Router>
+    <ThemeProvider theme={theme}>
+      <Router>
+        <PasswordGate>
           <Box sx={{ display: 'flex' }}>
             <CssBaseline />
             
@@ -207,9 +207,9 @@ function App() {
               </Routes>
             </Box>
           </Box>
-        </Router>
-      </ThemeProvider>
-    </PasswordGate>
+        </PasswordGate>
+      </Router>
+    </ThemeProvider>
   );
 }
 

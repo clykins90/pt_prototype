@@ -9,6 +9,7 @@ import LinkIcon from '@mui/icons-material/Link';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import AddIcon from '@mui/icons-material/Add';
+import DeleteIcon from '@mui/icons-material/Delete';
 
 const useStyles = makeStyles((theme) => ({
   root: {
@@ -140,15 +141,15 @@ const useStyles = makeStyles((theme) => ({
     }
   },
   addLineItem: {
-    margin: theme.spacing(1.5),
-    backgroundColor: '#EEF2F6',
-    color: '#4B5E78',
-    border: 'none',
+    margin: theme.spacing(3),
+    padding: '8px 16px',
+    backgroundColor: '#324467 !important',
+    color: 'white !important',
+    border: 'none !important',
     textTransform: 'none',
     fontWeight: 500,
-    padding: '6px 16px',
     '&:hover': {
-      backgroundColor: '#E3E8F0',
+      backgroundColor: '#2A3A5A !important',
       border: 'none'
     }
   },
@@ -254,6 +255,12 @@ const ProfitTracker = () => {
     planned: '',
     actual: ''
   });
+  const [overheadSections, setOverheadSections] = useState([{
+    id: Date.now(),
+    name: 'General Overhead',
+    items: [],
+    isAddingItem: false
+  }]);
 
   const handleAddCost = () => {
     const newCost = {
@@ -435,6 +442,35 @@ const ProfitTracker = () => {
     setNewLineItem({ name: '', planned: '', actual: '' });
   };
 
+  const handleUpdateItem = (groupIndex, itemIndex, field, value) => {
+    setCostGroups(prev => prev.map((group, gIndex) => ({
+      ...group,
+      items: group.items.map((item, i) =>
+        i === itemIndex ? {...item, [field]: value} : item
+      )
+    })));
+  };
+
+  const handleRemoveItem = (groupIndex, itemIndex) => {
+    setCostGroups(prev => prev.map((group, gIndex) => ({
+      ...group,
+      items: group.items.filter((_, i) => i !== itemIndex)
+    })));
+  };
+
+  const handleUpdateSectionName = (groupIndex, newName) => {
+    setCostGroups(prev => prev.map((group, gIndex) => ({
+      ...group,
+      name: newName
+    })));
+  };
+
+  const calculateOverheadTotals = (items) => {
+    const totalAmount = items.reduce((sum, item) => sum + (Number(item.planned) || 0), 0);
+    const totalPercentage = (totalAmount / plannedRevenue) * 100;
+    return { totalAmount, totalPercentage };
+  };
+
   return (
     <Paper className={classes.container}>
       <Typography variant="h4" gutterBottom>
@@ -500,7 +536,22 @@ const ProfitTracker = () => {
             </FormControl>
           </Box>
 
-          {costGroups.map(group => (
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
+            <Button 
+              variant="outlined"
+              startIcon={<AddIcon />}
+              onClick={() => setOverheadSections([...overheadSections, {
+                id: Date.now(),
+                name: 'New Section',
+                items: [],
+                isAddingItem: false
+              }])}
+            >
+              Add Overhead Section
+            </Button>
+          </Box>
+
+          {costGroups.map((group, gIndex) => (
             <div key={group.type} className={classes.costSection}>
               <Accordion 
                 className={classes.costGroup}
@@ -511,11 +562,20 @@ const ProfitTracker = () => {
                   className={classes.groupHeader}
                 >
                   <div className={classes.groupTitle}>
-                    <span>{group.type}</span>
+                    <Typography variant="subtitle1">{group.type}</Typography>
                   </div>
                   <div className={classes.groupMetrics}>
-                    <span>% of Revenue: {group.percentOfRevenue}%</span>
-                    <span>Total: ${group.actualTotal.toFixed(2)}</span>
+                    {group.type === 'Overhead' ? (
+                      <>
+                        <span>{calculateOverheadTotals(group.items).totalPercentage.toFixed(2)}% of Revenue</span>
+                        <span>${calculateOverheadTotals(group.items).totalAmount.toFixed(2)}</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Planned: ${group.items.reduce((sum, item) => sum + (Number(item.planned) || 0), 0).toFixed(2)}</span>
+                        <span>Actual: ${group.items.reduce((sum, item) => sum + (Number(item.actual) || 0), 0).toFixed(2)}</span>
+                      </>
+                    )}
                   </div>
                 </AccordionSummary>
                 
@@ -524,47 +584,101 @@ const ProfitTracker = () => {
                     <TableHead>
                       <TableRow>
                         <TableCell>Line Item</TableCell>
-                        <TableCell align="right">Planned</TableCell>
-                        <TableCell align="right">Actual</TableCell>
-                        <TableCell align="right">Variance</TableCell>
-                        <TableCell>Status</TableCell>
-                        <TableCell align="right">Actions</TableCell>
+                        {group.type === 'Overhead' ? (
+                          <>
+                            <TableCell align="right">% of Revenue</TableCell>
+                            <TableCell align="right">$ Amount</TableCell>
+                          </>
+                        ) : (
+                          <>
+                            <TableCell align="right">Planned Cost</TableCell>
+                            <TableCell align="right">Actual Cost</TableCell>
+                            <TableCell align="right">Variance</TableCell>
+                            <TableCell>Status</TableCell>
+                          </>
+                        )}
+                        <TableCell>Actions</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {group.items.map(item => (
+                      {group.items.map((item, i) => (
                         <TableRow key={item.id}>
-                          <TableCell>{item.description}</TableCell>
-                          <TableCell align="right">${item.planned.toFixed(2)}</TableCell>
-                          <TableCell align="right">${item.actual.toFixed(2)}</TableCell>
-                          <TableCell align="right">${(item.planned - item.actual).toFixed(2)}</TableCell>
                           <TableCell>
-                            <span className={`${classes.statusPill} ${item.status.toLowerCase()}`}>
-                              {item.status}
-                            </span>
+                            <TextField
+                              value={item.name}
+                              onChange={(e) => handleUpdateItem(gIndex, i, 'name', e.target.value)}
+                              fullWidth
+                            />
                           </TableCell>
-                          <TableCell align="right">
-                            <Button 
-                              variant="outlined"
-                              className={classes.actionButton}
-                              size="small"
-                            >
-                              <ReceiptIcon />
-                            </Button>
-                            <Button 
-                              variant="outlined"
-                              className={classes.actionButton}
-                              size="small"
-                            >
-                              <LinkIcon />
-                            </Button>
-                            <Button 
-                              variant="outlined"
-                              className={classes.actionButton}
-                              size="small"
-                            >
-                              <MoreVertIcon />
-                            </Button>
+                          {group.type === 'Overhead' ? (
+                            <>
+                              <TableCell align="right">
+                                <TextField
+                                  type="number"
+                                  value={item.percentage || ''}
+                                  onChange={(e) => {
+                                    const percentage = parseFloat(e.target.value);
+                                    const amount = (percentage / 100) * plannedRevenue;
+                                    handleUpdateItem(gIndex, i, 'percentage', percentage);
+                                    handleUpdateItem(gIndex, i, 'planned', amount);
+                                  }}
+                                  InputProps={{
+                                    endAdornment: <InputAdornment position="end">%</InputAdornment>,
+                                  }}
+                                />
+                              </TableCell>
+                              <TableCell align="right">
+                                <TextField
+                                  type="number"
+                                  value={item.planned || ''}
+                                  onChange={(e) => {
+                                    const amount = parseFloat(e.target.value);
+                                    const percentage = (amount / plannedRevenue) * 100;
+                                    handleUpdateItem(gIndex, i, 'planned', amount);
+                                    handleUpdateItem(gIndex, i, 'percentage', percentage);
+                                  }}
+                                  InputProps={{
+                                    startAdornment: <InputAdornment position="start">$</InputAdornment>,
+                                  }}
+                                />
+                              </TableCell>
+                            </>
+                          ) : (
+                            <>
+                              <TableCell align="right">
+                                <TextField
+                                  type="number"
+                                  value={item.planned}
+                                  onChange={(e) => handleUpdateItem(gIndex, i, 'planned', e.target.value)}
+                                  InputProps={{
+                                    startAdornment: <InputAdornment position="start">$</InputAdornment>,
+                                  }}
+                                />
+                              </TableCell>
+                              <TableCell align="right">
+                                <TextField
+                                  type="number"
+                                  value={item.actual}
+                                  onChange={(e) => handleUpdateItem(gIndex, i, 'actual', e.target.value)}
+                                  InputProps={{
+                                    startAdornment: <InputAdornment position="start">$</InputAdornment>,
+                                  }}
+                                />
+                              </TableCell>
+                              <TableCell align="right">
+                                ${(item.planned - item.actual).toFixed(2)}
+                              </TableCell>
+                              <TableCell>
+                                <span className={`${classes.statusPill} ${item.paid ? 'paid' : 'unpaid'}`}>
+                                  {item.paid ? 'Paid' : 'Unpaid'}
+                                </span>
+                              </TableCell>
+                            </>
+                          )}
+                          <TableCell>
+                            <IconButton onClick={() => handleRemoveItem(gIndex, i)}>
+                              <DeleteIcon />
+                            </IconButton>
                           </TableCell>
                         </TableRow>
                       ))}
@@ -630,15 +744,17 @@ const ProfitTracker = () => {
                       )}
                     </TableBody>
                   </Table>
-                  <Button
-                    variant="contained"
-                    startIcon={<AddIcon />}
-                    className={classes.addLineItem}
-                    onClick={() => handleStartNewItem(group.type)}
-                    disabled={group.isAddingItem}
-                  >
-                    Add Line Item
-                  </Button>
+                  <Box sx={{ padding: 2 }}>
+                    <Button
+                      variant="contained"
+                      startIcon={<AddIcon />}
+                      className={classes.addLineItem}
+                      onClick={() => handleStartNewItem(group.type)}
+                      disabled={group.isAddingItem}
+                    >
+                      Add Line Item
+                    </Button>
+                  </Box>
                 </AccordionDetails>
               </Accordion>
             </div>
@@ -648,81 +764,185 @@ const ProfitTracker = () => {
 
       {tabValue === 1 && (
         <div className={classes.section}>
-          <Typography variant="h5" gutterBottom>
-            Revenue Management
-          </Typography>
-          
-          <Typography variant="h6" gutterBottom>
-            Job Value Allocation (Planned: ${plannedRevenue})
-            <Typography variant="body2" color="textSecondary">
-              Allocated: ${totalAllocated} • Remaining: ${allocationRemaining}
-            </Typography>
-          </Typography>
+          <div className={classes.metricsContainer}>
+            <Paper className={classes.metricCard}>
+              <Box className={classes.metricValue}>
+                <Typography variant="h5">${plannedRevenue}</Typography>
+                <IconButton size="small">
+                  <InfoIcon fontSize="small" sx={{ color: '#6B7177' }} />
+                </IconButton>
+              </Box>
+              <Typography variant="body2" sx={{ color: '#6B7177' }}>
+                Total Planned Revenue
+              </Typography>
+            </Paper>
+            
+            <Paper className={classes.metricCard}>
+              <Box className={classes.metricValue}>
+                <Typography variant="h5">${actualRevenue}</Typography>
+                <IconButton size="small">
+                  <InfoIcon fontSize="small" />
+                </IconButton>
+              </Box>
+              <Typography variant="body2" color="textSecondary">
+                Actual Revenue
+              </Typography>
+            </Paper>
+            
+            <Paper className={classes.metricCard}>
+              <Box className={classes.metricValue}>
+                <Typography variant="h5">${totalAllocated}</Typography>
+                <IconButton size="small">
+                  <InfoIcon fontSize="small" />
+                </IconButton>
+              </Box>
+              <Typography variant="body2" color="textSecondary">
+                Allocated Revenue
+              </Typography>
+            </Paper>
+          </div>
 
-          <Button variant="contained" onClick={() => setPayees([...payees, {
-            id: Date.now(),
-            name: 'New Payee',
-            contact: '',
-            plannedAmount: allocationRemaining > 0 ? Math.min(allocationRemaining, 0) : 0,
-            balance: 0,
-            invoice: {
+          <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
+            <Typography variant="h5" gutterBottom>
+              Job Value Allocation (Planned: ${plannedRevenue})
+              <Typography variant="body2" color="textSecondary">
+                Allocated: ${totalAllocated} • Remaining: ${allocationRemaining}
+              </Typography>
+            </Typography>
+          </Box>
+
+          <Button 
+            variant="contained" 
+            startIcon={<AddIcon />}
+            className={classes.addLineItem}
+            onClick={() => setPayees([...payees, {
               id: Date.now(),
-              jobId: 'ROOF-' + new Date().getFullYear() + '-' + Math.floor(Math.random() * 1000),
-              description: 'Job Invoice',
-              scopeOfWork: '',
-              amount: allocationRemaining > 0 ? Math.min(allocationRemaining, 0) : 0,
-              dueDate: new Date().toISOString().split('T')[0],
-              paymentRequests: [],
-              status: 'unpaid'
-            }
-          }])}>
+              name: 'New Payee',
+              contact: '',
+              plannedAmount: allocationRemaining > 0 ? Math.min(allocationRemaining, 0) : 0,
+              balance: 0,
+              invoice: {
+                id: Date.now(),
+                jobId: 'ROOF-' + new Date().getFullYear() + '-' + Math.floor(Math.random() * 1000),
+                description: 'Job Invoice',
+                scopeOfWork: '',
+                amount: allocationRemaining > 0 ? Math.min(allocationRemaining, 0) : 0,
+                dueDate: new Date().toISOString().split('T')[0],
+                paymentRequests: [],
+                status: 'unpaid'
+              }
+            }])}
+          >
             Add Payee
           </Button>
 
           {payees.map((payee, pIndex) => (
-            <Paper key={payee.id} className={classes.section}>
-              <Box display="flex" justifyContent="space-between" alignItems="center">
-                <Typography variant="h6">
-                  {payee.name} (Allocated: ${payee.plannedAmount})
-                </Typography>
-                <TextField
-                  label="Allocated Amount"
-                  type="number"
-                  value={payee.plannedAmount}
-                  onChange={(e) => handleUpdatePayee(pIndex, 'plannedAmount', e.target.value)}
-                  InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
-                />
-              </Box>
-              {payee.invoice ? (
-                <Paper className={classes.invoiceSection}>
-                  <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-                    <div>
-                      <Typography variant="subtitle1">INVOICE #: {payee.invoice.jobId}</Typography>
-                      <Typography variant="body2">Status: {payee.invoice.status}</Typography>
-                    </div>
-                    <Box>
-                      <Button onClick={() => handleOpenSendDialog(payee.invoice, 'invoice')}>
-                        Email Invoice
-                      </Button>
-                      <Button onClick={() => handleOpenSendDialog(payee.invoice, 'payment')}>
-                        Request Payment
-                      </Button>
-                    </Box>
-                  </Box>
-                  
-                  <Typography variant="subtitle2">Scope of Work:</Typography>
-                  <Typography variant="body2" whiteSpace="pre-wrap">
-                    {payee.invoice.scopeOfWork}
-                  </Typography>
-                  
-                  {/* Payment requests accordion */}
-                </Paper>
-              ) : (
-                <Button onClick={() => handleCreateInvoice(pIndex)}>
-                  Create Job Invoice
-                </Button>
-              )}
-            </Paper>
+            <Accordion 
+              key={payee.id} 
+              className={classes.costGroup}
+              defaultExpanded
+            >
+              <AccordionSummary
+                expandIcon={<ExpandMoreIcon />}
+                className={classes.groupHeader}
+              >
+                <div className={classes.groupTitle}>
+                  <Typography variant="subtitle1">{payee.name}</Typography>
+                </div>
+                <div className={classes.groupMetrics}>
+                  <span>Allocated: ${payee.plannedAmount}</span>
+                  <span>Balance: ${payee.balance}</span>
+                </div>
+              </AccordionSummary>
+
+              <AccordionDetails sx={{ padding: 0 }}>
+                <Box p={2}>
+                  <TextField
+                    label="Allocated Amount"
+                    type="number"
+                    value={payee.plannedAmount}
+                    onChange={(e) => handleUpdatePayee(pIndex, 'plannedAmount', e.target.value)}
+                    InputProps={{ 
+                      startAdornment: <InputAdornment position="start">$</InputAdornment>,
+                      sx: { maxWidth: 200 } 
+                    }}
+                    fullWidth
+                    margin="normal"
+                  />
+
+                  {payee.invoice ? (
+                    <Paper className={classes.invoiceSection}>
+                      <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+                        <div>
+                          <Typography variant="subtitle1">INVOICE #: {payee.invoice.jobId}</Typography>
+                          <Typography variant="body2">Status: {payee.invoice.status}</Typography>
+                        </div>
+                        <Box>
+                          <Button 
+                            variant="outlined" 
+                            className={classes.actionButton}
+                            onClick={() => handleOpenSendDialog(payee.invoice, 'invoice')}
+                          >
+                            <ReceiptIcon /> Email
+                          </Button>
+                          <Button 
+                            variant="outlined" 
+                            className={classes.actionButton}
+                            onClick={() => handleOpenSendDialog(payee.invoice, 'payment')}
+                          >
+                            <LinkIcon /> Request
+                          </Button>
+                        </Box>
+                      </Box>
+                      
+                      <Typography variant="subtitle2" gutterBottom>Scope of Work:</Typography>
+                      <Typography variant="body2" whiteSpace="pre-wrap" paragraph>
+                        {payee.invoice.scopeOfWork}
+                      </Typography>
+
+                      <Table className={classes.table}>
+                        <TableHead>
+                          <TableRow>
+                            <TableCell>Payment Type</TableCell>
+                            <TableCell align="right">Amount</TableCell>
+                            <TableCell>Date</TableCell>
+                            <TableCell>Status</TableCell>
+                            <TableCell align="right">Actions</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {payee.invoice.paymentRequests.map(payment => (
+                            <TableRow key={payment.id}>
+                              <TableCell>{payment.type}</TableCell>
+                              <TableCell align="right">${payment.amount}</TableCell>
+                              <TableCell>{payment.date}</TableCell>
+                              <TableCell>
+                                <span className={`${classes.statusPill} ${payment.status}`}>
+                                  {payment.status}
+                                </span>
+                              </TableCell>
+                              <TableCell align="right">
+                                <IconButton size="small" className={classes.actionButton}>
+                                  <MoreVertIcon />
+                                </IconButton>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </Paper>
+                  ) : (
+                    <Button 
+                      variant="contained" 
+                      className={classes.addLineItem}
+                      onClick={() => handleCreateInvoice(pIndex)}
+                    >
+                      Create Job Invoice
+                    </Button>
+                  )}
+                </Box>
+              </AccordionDetails>
+            </Accordion>
           ))}
         </div>
       )}
