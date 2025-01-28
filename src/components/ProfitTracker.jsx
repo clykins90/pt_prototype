@@ -10,6 +10,9 @@ import MoreVertIcon from '@mui/icons-material/MoreVert';
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
+import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
+import { theme } from '../theme';
+import { DragDropContext, Droppable, Draggable } from 'react-beautiful-dnd';
 
 const useStyles = makeStyles((theme) => ({
   root: {
@@ -81,6 +84,7 @@ const useStyles = makeStyles((theme) => ({
   groupHeader: {
     display: 'flex',
     justifyContent: 'space-between',
+    alignItems: 'center',
     padding: theme.spacing(1.5),
     backgroundColor: '#fff',
     cursor: 'pointer',
@@ -92,6 +96,7 @@ const useStyles = makeStyles((theme) => ({
     display: 'flex',
     alignItems: 'center',
     gap: theme.spacing(1),
+    flex: '0 0 auto',
     '& .MuiSvgIcon-root': {
       fontSize: '1.2rem',
       color: '#6B7177'
@@ -102,7 +107,10 @@ const useStyles = makeStyles((theme) => ({
     alignItems: 'center',
     gap: theme.spacing(2),
     color: '#6B7177',
-    fontSize: '0.875rem'
+    fontSize: '0.875rem',
+    flex: '1 1 auto',
+    justifyContent: 'flex-end',
+    paddingLeft: theme.spacing(2),
   },
   table: {
     '& .MuiTableCell-head': {
@@ -188,6 +196,10 @@ const useStyles = makeStyles((theme) => ({
     '& .MuiTextField-root': {
       margin: 0
     }
+  },
+  dragHandle: {
+    cursor: 'grab',
+    '&:active': { cursor: 'grabbing' }
   }
 }));
 
@@ -236,12 +248,14 @@ const ProfitTracker = () => {
   const [costGroups, setCostGroups] = useState([
     {
       type: 'Overhead',
+      name: 'Overhead',
       percentOfRevenue: 8.25,
       actualTotal: 2887.50,
       items: []
     },
     {
       type: 'Materials',
+      name: 'Materials',
       percentOfRevenue: 21.25,
       actualTotal: 7843.77,
       items: []
@@ -255,12 +269,8 @@ const ProfitTracker = () => {
     planned: '',
     actual: ''
   });
-  const [overheadSections, setOverheadSections] = useState([{
-    id: Date.now(),
-    name: 'General Overhead',
-    items: [],
-    isAddingItem: false
-  }]);
+  const [openPlannedRevenueDialog, setOpenPlannedRevenueDialog] = useState(false);
+  const [plannedRevenueInput, setPlannedRevenueInput] = useState(plannedRevenue.toString());
 
   const handleAddCost = () => {
     const newCost = {
@@ -416,22 +426,32 @@ const ProfitTracker = () => {
   const handleSaveNewItem = (groupType) => {
     if (!newLineItem.name) return;
     
+    const newItem = {
+      id: Date.now(),
+      name: newLineItem.name,
+      status: 'Unpaid'
+    };
+
+    if (groupType === 'Overhead') {
+      newItem.percentage = newLineItem.percentage || '0.00';
+      newItem.planned = ((Number(newLineItem.percentage || 0) / 100) * plannedRevenue).toFixed(2);
+    } else {
+      newItem.planned = Number(newLineItem.planned) || 0;
+      newItem.actual = Number(newLineItem.actual) || 0;
+    }
+
     setCostGroups(prev => prev.map(group => {
       if (group.type === groupType) {
         return {
           ...group,
           isAddingItem: false,
-          items: [...group.items, {
-            id: Date.now(),
-            name: newLineItem.name,
-            planned: Number(newLineItem.planned) || 0,
-            actual: Number(newLineItem.actual) || 0,
-            status: 'Unpaid'
-          }]
+          items: [...group.items, newItem]
         };
       }
       return group;
     }));
+
+    setNewLineItem({ name: '', planned: '', actual: '' });
   };
 
   const handleCancelNewItem = (groupType) => {
@@ -443,12 +463,37 @@ const ProfitTracker = () => {
   };
 
   const handleUpdateItem = (groupIndex, itemIndex, field, value) => {
-    setCostGroups(prev => prev.map((group, gIndex) => ({
-      ...group,
-      items: group.items.map((item, i) =>
-        i === itemIndex ? {...item, [field]: value} : item
-      )
-    })));
+    setCostGroups(prev => prev.map((group, gIndex) => {
+      if (gIndex !== groupIndex) return group;
+      
+      const updatedItems = group.items.map((item, i) => {
+        if (i !== itemIndex) return item;
+        
+        const updatedItem = { ...item };
+        
+        if (group.type === 'Overhead') {
+          if (field === 'percentage') {
+            // Store percentage as is (string with decimals)
+            const percentage = parseFloat(value) || 0;
+            updatedItem.percentage = value;
+            // Calculate dollar amount based on percentage
+            const amount = (percentage / 100) * plannedRevenue;
+            updatedItem.planned = amount.toFixed(2);
+          } else {
+            updatedItem[field] = value;
+          }
+        } else {
+          updatedItem[field] = value;
+        }
+        
+        return updatedItem;
+      });
+
+      return {
+        ...group,
+        items: updatedItems
+      };
+    }));
   };
 
   const handleRemoveItem = (groupIndex, itemIndex) => {
@@ -458,17 +503,51 @@ const ProfitTracker = () => {
     })));
   };
 
+  const handleDragEnd = (result) => {
+    if (!result.destination || result.source.index === result.destination.index) return;
+    
+    const items = Array.from(costGroups);
+    const [reorderedItem] = items.splice(result.source.index, 1);
+    
+    // Prevent moving Overhead section
+    if (reorderedItem.type === 'Overhead') return;
+    
+    items.splice(result.destination.index, 0, reorderedItem);
+    setCostGroups(items);
+  };
+
   const handleUpdateSectionName = (groupIndex, newName) => {
-    setCostGroups(prev => prev.map((group, gIndex) => ({
-      ...group,
-      name: newName
-    })));
+    if (costGroups[groupIndex].type === 'Overhead') return;
+    setCostGroups(prev => prev.map((group, gIndex) => 
+      gIndex === groupIndex ? {...group, name: newName} : group
+    ));
   };
 
   const calculateOverheadTotals = (items) => {
     const totalAmount = items.reduce((sum, item) => sum + (Number(item.planned) || 0), 0);
-    const totalPercentage = (totalAmount / plannedRevenue) * 100;
-    return { totalAmount, totalPercentage };
+    const totalPercentage = items.reduce((sum, item) => sum + (Number(item.percentage) || 0), 0);
+    return { 
+      totalAmount: totalAmount.toFixed(2), 
+      totalPercentage: totalPercentage.toFixed(2)
+    };
+  };
+
+  const handlePlannedRevenueUpdate = () => {
+    const newValue = Number(plannedRevenueInput) || 0;
+    setPlannedRevenue(newValue);
+    setOpenPlannedRevenueDialog(false);
+  };
+
+  const handleAddLineItem = (groupIndex) => {
+    setCostGroups(prev => prev.map((group, gIndex) => 
+      gIndex === groupIndex ? {...group, isAddingItem: true} : group
+    ));
+    setNewLineItem({
+      name: '',
+      planned: '',
+      actual: '',
+      percentage: ''
+    });
   };
 
   return (
@@ -487,8 +566,8 @@ const ProfitTracker = () => {
           <div className={classes.metricsContainer}>
             <Paper className={classes.metricCard}>
               <Box className={classes.metricValue}>
-                <Typography variant="h5">41.14%</Typography>
-                <ArrowUpwardIcon className="trend-up" sx={{ fontSize: 16 }} />
+                <Typography variant="h5" sx={{ color: '#00847A' }}>41.14%</Typography>
+                <ArrowUpwardIcon className="trend-up" sx={{ fontSize: 16, color: '#00847A' }} />
                 <IconButton size="small">
                   <InfoIcon fontSize="small" sx={{ color: '#6B7177' }} />
                 </IconButton>
@@ -497,20 +576,58 @@ const ProfitTracker = () => {
                 Actual Profit Margin
               </Typography>
             </Paper>
-            
+
             <Paper className={classes.metricCard}>
               <Box className={classes.metricValue}>
-                <Typography variant="h5">${costs.reduce((sum, c) => sum + Number(c.planned), 0)}</Typography>
-                <IconButton size="small">
-                  <InfoIcon fontSize="small" />
+                <Typography variant="h5" sx={{ color: '#000' }}>${plannedRevenue.toFixed(2)}</Typography>
+                <IconButton 
+                  size="small" 
+                  onClick={() => setOpenPlannedRevenueDialog(true)}
+                >
+                  <AddIcon fontSize="small" sx={{ color: '#6B7177' }} />
                 </IconButton>
               </Box>
-              <Typography variant="body2" color="textSecondary">
+              <Typography variant="body2" sx={{ color: '#6B7177' }}>
+                Planned Revenue
+              </Typography>
+            </Paper>
+
+            <Paper className={classes.metricCard}>
+              <Box className={classes.metricValue}>
+                <Typography variant="h5" sx={{ color: '#000' }}>$19,500.00</Typography>
+                <IconButton size="small">
+                  <AddIcon fontSize="small" sx={{ color: '#6B7177' }} />
+                </IconButton>
+              </Box>
+              <Typography variant="body2" sx={{ color: '#6B7177' }}>
                 Planned Cost
               </Typography>
             </Paper>
-            
-            {/* Add similar cards for Actual Revenue and Actual Cost */}
+
+            <Paper className={classes.metricCard}>
+              <Box className={classes.metricValue}>
+                <Typography variant="h5" sx={{ color: '#00847A' }}>$35,000.00</Typography>
+                <ArrowUpwardIcon className="trend-up" sx={{ fontSize: 16, color: '#00847A' }} />
+                <IconButton size="small">
+                  <InfoIcon fontSize="small" sx={{ color: '#6B7177' }} />
+                </IconButton>
+              </Box>
+              <Typography variant="body2" sx={{ color: '#6B7177' }}>
+                Actual Revenue
+              </Typography>
+            </Paper>
+
+            <Paper className={classes.metricCard}>
+              <Box className={classes.metricValue}>
+                <Typography variant="h5" sx={{ color: '#D63649' }}>$20,600.00</Typography>
+                <IconButton size="small">
+                  <AddIcon fontSize="small" sx={{ color: '#6B7177' }} />
+                </IconButton>
+              </Box>
+              <Typography variant="body2" sx={{ color: '#6B7177' }}>
+                Actual Cost
+              </Typography>
+            </Paper>
           </div>
 
           <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
@@ -536,44 +653,58 @@ const ProfitTracker = () => {
             </FormControl>
           </Box>
 
-          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
-            <Button 
-              variant="outlined"
-              startIcon={<AddIcon />}
-              onClick={() => setOverheadSections([...overheadSections, {
-                id: Date.now(),
-                name: 'New Section',
-                items: [],
-                isAddingItem: false
-              }])}
-            >
-              Add Overhead Section
-            </Button>
-          </Box>
-
           {costGroups.map((group, gIndex) => (
-            <div key={group.type} className={classes.costSection}>
+            <div className={classes.costSection} key={group.type}>
               <Accordion 
                 className={classes.costGroup}
                 defaultExpanded
+                draggable={group.type !== 'Overhead'}
               >
                 <AccordionSummary
                   expandIcon={<ExpandMoreIcon />}
                   className={classes.groupHeader}
                 >
+                  {group.type !== 'Overhead' && (
+                    <IconButton 
+                      className={classes.dragHandle}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <DragIndicatorIcon />
+                    </IconButton>
+                  )}
+                  
                   <div className={classes.groupTitle}>
-                    <Typography variant="subtitle1">{group.type}</Typography>
+                    {group.type === 'Overhead' ? (
+                      <Typography variant="subtitle1">{group.name}</Typography>
+                    ) : (
+                      <TextField
+                        value={group.name}
+                        onChange={(e) => handleUpdateSectionName(gIndex, e.target.value)}
+                        variant="standard"
+                        InputProps={{ disableUnderline: true }}
+                      />
+                    )}
                   </div>
+
                   <div className={classes.groupMetrics}>
                     {group.type === 'Overhead' ? (
                       <>
-                        <span>{calculateOverheadTotals(group.items).totalPercentage.toFixed(2)}% of Revenue</span>
-                        <span>${calculateOverheadTotals(group.items).totalAmount.toFixed(2)}</span>
+                        <Typography variant="body2" sx={{ color: '#424242', fontWeight: 500, mr: 3 }}>
+                          Total: {calculateOverheadTotals(group.items).totalPercentage}%
+                        </Typography>
+                        <Typography variant="body2" sx={{ color: '#424242', fontWeight: 500 }}>
+                          Total: ${calculateOverheadTotals(group.items).totalAmount}
+                        </Typography>
                       </>
                     ) : (
                       <>
-                        <span>Planned: ${group.items.reduce((sum, item) => sum + (Number(item.planned) || 0), 0).toFixed(2)}</span>
-                        <span>Actual: ${group.items.reduce((sum, item) => sum + (Number(item.actual) || 0), 0).toFixed(2)}</span>
+                        <Typography variant="body2" sx={{ color: '#424242', fontWeight: 500, mr: 3 }}>
+                          Planned: ${group.items.reduce((sum, item) => sum + Number(item.planned || 0), 0).toFixed(2)}
+                        </Typography>
+                        <Typography variant="body2" sx={{ color: '#424242', fontWeight: 500 }}>
+                          Actual: ${group.items.reduce((sum, item) => sum + Number(item.actual || 0), 0).toFixed(2)}
+                        </Typography>
                       </>
                     )}
                   </div>
@@ -616,31 +747,22 @@ const ProfitTracker = () => {
                                 <TextField
                                   type="number"
                                   value={item.percentage || ''}
-                                  onChange={(e) => {
-                                    const percentage = parseFloat(e.target.value);
-                                    const amount = (percentage / 100) * plannedRevenue;
-                                    handleUpdateItem(gIndex, i, 'percentage', percentage);
-                                    handleUpdateItem(gIndex, i, 'planned', amount);
-                                  }}
+                                  onChange={(e) => handleUpdateItem(gIndex, i, 'percentage', e.target.value)}
                                   InputProps={{
                                     endAdornment: <InputAdornment position="end">%</InputAdornment>,
+                                    inputProps: { 
+                                      step: "0.01",
+                                      min: "0",
+                                      max: "100"
+                                    }
                                   }}
+                                  sx={{ width: '120px' }}
                                 />
                               </TableCell>
                               <TableCell align="right">
-                                <TextField
-                                  type="number"
-                                  value={item.planned || ''}
-                                  onChange={(e) => {
-                                    const amount = parseFloat(e.target.value);
-                                    const percentage = (amount / plannedRevenue) * 100;
-                                    handleUpdateItem(gIndex, i, 'planned', amount);
-                                    handleUpdateItem(gIndex, i, 'percentage', percentage);
-                                  }}
-                                  InputProps={{
-                                    startAdornment: <InputAdornment position="start">$</InputAdornment>,
-                                  }}
-                                />
+                                <Typography>
+                                  ${((Number(item.percentage || 0) / 100) * plannedRevenue).toFixed(2)}
+                                </Typography>
                               </TableCell>
                             </>
                           ) : (
@@ -693,33 +815,60 @@ const ProfitTracker = () => {
                               fullWidth
                             />
                           </TableCell>
-                          <TableCell align="right">
-                            <TextField
-                              size="small"
-                              type="number"
-                              placeholder="0.00"
-                              value={newLineItem.planned}
-                              onChange={(e) => setNewLineItem(prev => ({ ...prev, planned: e.target.value }))}
-                              InputProps={{
-                                startAdornment: <InputAdornment position="start">$</InputAdornment>
-                              }}
-                            />
-                          </TableCell>
-                          <TableCell align="right">
-                            <TextField
-                              size="small"
-                              type="number"
-                              placeholder="0.00"
-                              value={newLineItem.actual}
-                              onChange={(e) => setNewLineItem(prev => ({ ...prev, actual: e.target.value }))}
-                              InputProps={{
-                                startAdornment: <InputAdornment position="start">$</InputAdornment>
-                              }}
-                            />
-                          </TableCell>
-                          <TableCell align="right">
-                            ${((Number(newLineItem.planned) || 0) - (Number(newLineItem.actual) || 0)).toFixed(2)}
-                          </TableCell>
+                          
+                          {group.type === 'Overhead' ? (
+                            <>
+                              <TableCell align="right">
+                                <TextField
+                                  size="small"
+                                  type="number"
+                                  placeholder="0.00"
+                                  value={newLineItem.percentage || ''}
+                                  onChange={(e) => setNewLineItem(prev => ({ ...prev, percentage: e.target.value }))}
+                                  InputProps={{
+                                    endAdornment: <InputAdornment position="end">%</InputAdornment>,
+                                    inputProps: { 
+                                      step: "0.01",
+                                      min: "0",
+                                      max: "100"
+                                    }
+                                  }}
+                                />
+                              </TableCell>
+                              <TableCell align="right">
+                                <Typography>
+                                  ${((Number(newLineItem.percentage || 0) / 100) * plannedRevenue).toFixed(2)}
+                                </Typography>
+                              </TableCell>
+                            </>
+                          ) : (
+                            <>
+                              <TableCell align="right">
+                                <TextField
+                                  size="small"
+                                  type="number"
+                                  placeholder="0.00"
+                                  value={newLineItem.planned}
+                                  onChange={(e) => setNewLineItem(prev => ({ ...prev, planned: e.target.value }))}
+                                  InputProps={{
+                                    startAdornment: <InputAdornment position="start">$</InputAdornment>
+                                  }}
+                                />
+                              </TableCell>
+                              <TableCell align="right">
+                                <TextField
+                                  size="small"
+                                  type="number"
+                                  placeholder="0.00"
+                                  value={newLineItem.actual}
+                                  onChange={(e) => setNewLineItem(prev => ({ ...prev, actual: e.target.value }))}
+                                  InputProps={{
+                                    startAdornment: <InputAdornment position="start">$</InputAdornment>
+                                  }}
+                                />
+                              </TableCell>
+                            </>
+                          )}
                           <TableCell>
                             <span className={`${classes.statusPill} unpaid`}>
                               Unpaid
@@ -744,13 +893,18 @@ const ProfitTracker = () => {
                       )}
                     </TableBody>
                   </Table>
-                  <Box sx={{ padding: 2 }}>
+
+                  {/* Add Line Item Button */}
+                  <Box sx={{ display: 'flex', justifyContent: 'flex-start', p: 2 }}>
                     <Button
                       variant="contained"
                       startIcon={<AddIcon />}
-                      className={classes.addLineItem}
                       onClick={() => handleStartNewItem(group.type)}
-                      disabled={group.isAddingItem}
+                      sx={{ 
+                        backgroundColor: '#324467', 
+                        color: 'white',
+                        '&:hover': { backgroundColor: '#2A3A5A' }
+                      }}
                     >
                       Add Line Item
                     </Button>
@@ -759,6 +913,21 @@ const ProfitTracker = () => {
               </Accordion>
             </div>
           ))}
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
+            <Button 
+              variant="outlined"
+              startIcon={<AddIcon />}
+              onClick={() => setCostGroups([...costGroups, {
+                type: 'Cost',
+                name: 'New Section',
+                items: [],
+                percentOfRevenue: 0,
+                actualTotal: 0
+              }])}
+            >
+              Add Section
+            </Button>
+          </Box>
         </div>
       )}
 
@@ -946,6 +1115,36 @@ const ProfitTracker = () => {
           ))}
         </div>
       )}
+
+      <Dialog 
+        open={openPlannedRevenueDialog} 
+        onClose={() => setOpenPlannedRevenueDialog(false)}
+        className={classes.dialog}
+      >
+        <DialogTitle>Update Planned Revenue</DialogTitle>
+        <DialogContent className={classes.dialogContent}>
+          <TextField
+            label="Planned Revenue"
+            type="number"
+            value={plannedRevenueInput}
+            onChange={(e) => setPlannedRevenueInput(e.target.value)}
+            fullWidth
+            InputProps={{
+              startAdornment: <InputAdornment position="start">$</InputAdornment>,
+            }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpenPlannedRevenueDialog(false)}>Cancel</Button>
+          <Button 
+            onClick={handlePlannedRevenueUpdate}
+            variant="contained"
+            color="primary"
+          >
+            Save
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Paper>
   );
 };
